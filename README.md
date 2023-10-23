@@ -29,6 +29,7 @@ Then, you can run the tool by executing the script. Before running, you may want
 
 ```bash
 python <script_name>.py
+```
 
 Replace `<script_name>` with the name you've given to the script.
 
