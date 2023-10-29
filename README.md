@@ -24,6 +24,7 @@ Firstly, you need to install the required packages:
 
 ```bash
 pip install yfinance pandas
+```
 
 Then, you can run the tool by executing the script. Before running, you may want to change the `ticker_symbol` in the code to the stock ticker of your choice. For example, the given code uses 'CEIX' as the ticker symbol.
 

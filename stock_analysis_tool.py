@@ -206,7 +206,7 @@ def fetch_share_volume_data(ticker_symbol):
 
     return latest_volume, average_volume
 
-ticker_symbol = 'CEIX'  # For Apple Inc. as an example
+ticker_symbol = 'GOOG'  # For Apple Inc. as an example
 roic_growth_rate(ticker_symbol)
 egr_dict = equity_growth_rates(ticker_symbol)
 
