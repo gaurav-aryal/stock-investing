@@ -1,24 +1,83 @@
 import yfinance as yf
 import pandas as pd
+from datetime import datetime, timedelta
+import datetime as dt
 
 # Disable pandas warning
 pd.options.mode.chained_assignment = None
 
+def compare_annual_performance(ticker_symbol, index_fund="VTSAX"):
+    def get_annual_returns(symbol):
+        # Get the current date
+        end_date = dt.date.today()
+        # Get the date from 10 years ago
+        start_date = end_date - dt.timedelta(days=10*365.25)
+        
+        # Fetch data
+        stock = yf.Ticker(symbol)
+        data = stock.history(start=start_date, end=end_date)
+        
+        # Calculate annual returns
+        return data['Close'].resample('A').ffill().pct_change().dropna() * 100, data
+
+    def calculate_cagr(data):
+        start_value = data['Close'].iloc[0]
+        end_value = data['Close'].iloc[-1]
+        years = len(data['Close'].resample('A').max())
+        cagr = ((end_value / start_value) ** (1/years)) - 1
+        return cagr * 100
+
+    # Get annual returns and full data for index_fund and the given ticker symbol
+    index_fund_returns, index_fund_data = get_annual_returns(index_fund)
+    symbol_returns, symbol_data = get_annual_returns(ticker_symbol)
+
+    # Calculate CAGR for index_fund and the ticker symbol
+    index_fund_cagr = calculate_cagr(index_fund_data)
+    symbol_cagr = calculate_cagr(symbol_data)
+
+    # Calculate average annual performance
+    avg_index_fund_return = index_fund_returns.mean()
+    avg_symbol_return = symbol_returns.mean()
+
+    # Display the comparison
+    print('#############################')
+    for year in range(index_fund_returns.index[0].year, index_fund_returns.index[-1].year + 1):
+        index_fund_val = index_fund_returns[index_fund_returns.index.year == year].values
+        symbol_val = symbol_returns[symbol_returns.index.year == year].values
+        
+        if index_fund_val.size > 0 and symbol_val.size > 0:
+            print(f"Annual performance in {year}: {index_fund} = {index_fund_val[0]:.2f}% | {ticker_symbol} = {symbol_val[0]:.2f}%")
+        elif index_fund_val.size > 0:
+            print(f"Annual performance in {year}: {index_fund} = {index_fund_val[0]:.2f}% | {ticker_symbol} data not available")
+        elif symbol_val.size > 0:
+            print(f"Annual performance in {year}: {index_fund} data not available | {ticker_symbol} = {symbol_val[0]:.2f}%")
+
+    # Print average annual performance
+    print("\nAverage Annual Performance over 10 years:")
+    print(f"{index_fund}: {avg_index_fund_return:.2f}%")
+    print(f"{ticker_symbol}: {avg_symbol_return:.2f}%")
+
+    # Print CAGR
+    print("\nCompound Annual Growth Rate (CAGR) over 10 years:")
+    print(f"{index_fund}: {index_fund_cagr:.2f}%")
+    print(f"{ticker_symbol}: {symbol_cagr:.2f}%")
+
 def roic_growth_rate(ticker_symbol):
-    
     # Fetch data
     stock = yf.Ticker(ticker_symbol)
     financials = stock.financials.transpose()
     balancesheet = stock.balance_sheet.transpose()
 
     # Calculate NOPAT
-    operating_income = financials['Operating Income']
+    operating_income = financials['Operating Revenue']
     tax_rate = financials['Tax Provision'] / financials['Pretax Income']
     nopat = operating_income * (1 - tax_rate)
 
     # Calculate Invested Capital
     total_assets = balancesheet['Total Assets']
-    current_liabilities = balancesheet['Current Liabilities']
+    current_liabilities = 0
+    if 'Current Liabilities' in balancesheet.columns:
+        current_liabilities = balancesheet['Current Liabilities']
     long_term_debt = balancesheet.get('Long Term Debt', 0)
     # If short-term debt info is available, fetch it, else set to 0
     short_term_debt = balancesheet.get('Short Term Debt', 0)
@@ -206,8 +265,12 @@ def fetch_share_volume_data(ticker_symbol):
 
     return latest_volume, average_volume
 
-ticker_symbol = 'GOOG'  # For Apple Inc. as an example
+ticker_symbol = 'CEIX'  # For Apple Inc. as an example
+
+compare_annual_performance(ticker_symbol)
+
 roic_growth_rate(ticker_symbol)
+
 egr_dict = equity_growth_rates(ticker_symbol)
 
 print('#############################')
