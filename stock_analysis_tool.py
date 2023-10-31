@@ -211,61 +211,102 @@ def free_cash_flow_growth_rate(ticker_symbol):
 
     return growth_rates
 
+
 def display_pe_ratios(ticker_symbol):
-    # Fetch data for the ticker
-    stock = yf.Ticker(ticker_symbol)
-    
-    # Fetch the current stock price
-    current_stock_price = stock.info['currentPrice']
-    
-    # Fetch the trailing earnings per share (EPS)
-    trailing_eps = stock.info['trailingEps']
-
-    # Fetch the forward earnings per share (EPS)
-    forward_eps = stock.info['forwardEps']
-
-    # Calculate and display the trailing PE ratio
-    if trailing_eps and trailing_eps != 0:  # Check for valid and non-zero EPS
-        trailing_pe_ratio = current_stock_price / trailing_eps
-        print(f"Trailing PE Ratio for {ticker_symbol}: {trailing_pe_ratio:.2f}")
-    else:
-        print(f"Trailing Earnings Per Share data not available or zero for {ticker_symbol}. Cannot compute PE ratio.")
+    try:
+        # Fetch data for the ticker
+        stock = yf.Ticker(ticker_symbol)
         
-    # Calculate and display the forward PE ratio
-    if forward_eps and forward_eps != 0:  # Check for valid and non-zero EPS
-        forward_pe_ratio = current_stock_price / forward_eps
-        print(f"Forward PE Ratio for {ticker_symbol}: {forward_pe_ratio:.2f}")
-    else:
-        print(f"Forward Earnings Per Share data not available or zero for {ticker_symbol}. Cannot compute PE ratio.")
+        # Get today's date and fetch historical data for today
+        # today = dt.date.today()
+        # data = stock.history(start=today, end=today + dt.timedelta(days=1))
+        # print(data)
+        # Use the closing price (latest available price) for today as the current stock price
+        current_stock_price = get_current_stock_price(ticker_symbol)
+        
+        # Fetch the trailing earnings per share (EPS)
+        # trailing_eps = stock.info.get('trailingEps', None)
+    
+        # # Fetch the forward earnings per share (EPS)
+        # forward_eps = stock.info.get('forwardEps', None)
+    
+        # # Calculate and display the trailing PE ratio
+        # if trailing_eps and trailing_eps != 0:  # Check for valid and non-zero EPS
+        #     trailing_pe_ratio = current_stock_price / trailing_eps
+        #     print(f"Trailing PE Ratio for {ticker_symbol}: {trailing_pe_ratio:.2f}")
+        # else:
+        #     print(f"Trailing Earnings Per Share data not available or zero for {ticker_symbol}. Cannot compute PE ratio.")
+            
+        # # Calculate and display the forward PE ratio
+        # if forward_eps and forward_eps != 0:  # Check for valid and non-zero EPS
+        #     forward_pe_ratio = current_stock_price / forward_eps
+        #     print(f"Forward PE Ratio for {ticker_symbol}: {forward_pe_ratio:.2f}")
+        # else:
+        #     print(f"Forward Earnings Per Share data not available or zero for {ticker_symbol}. Cannot compute PE ratio.")
+    except Exception as e:
+        print(f"Error fetching data for {ticker_symbol} in display_pe_ratios method : {e}")
 
-def calculate_market_cap(ticker_symbol):
-    # Fetch data for the ticker
+
+def get_current_stock_price(ticker_symbol):
     stock = yf.Ticker(ticker_symbol)
     
-    # Fetch the current stock price
-    current_stock_price = stock.info['currentPrice']
+    # Get today's date
+    today = dt.date.today()
     
-    # Fetch the number of outstanding shares
-    outstanding_shares = stock.info['sharesOutstanding']
+    # Fetch historical data for today
+    data = stock.history(start=today, end=today + dt.timedelta(days=1))
+    
+    # Return the closing price (latest available price) for today
+    return data['Close'].iloc[0]
 
-    # Calculate the market cap
-    market_cap = current_stock_price * outstanding_shares
-    
-    return market_cap
 
 def fetch_share_volume_data(ticker_symbol):
-    # Fetch data for the ticker
+    try:
+        # Fetch data for the ticker
+        stock = yf.Ticker(ticker_symbol)
+        
+        # Fetch the latest volume of shares traded
+        latest_volume = stock.info.get('volume', None)
+        
+        # Fetch the average volume of shares traded
+        average_volume = stock.info.get('averageVolume', None)
+        
+        if latest_volume is None or average_volume is None:
+            raise Exception("Unable to fetch volume data")
+        
+        return latest_volume, average_volume
+    except Exception as e:
+        print(f"Error fetching volume data for {ticker_symbol}: {e}")
+        return None, None
+
+
+def get_shares_outstanding(ticker_symbol):
     stock = yf.Ticker(ticker_symbol)
-    
-    # Fetch the latest volume of shares traded
-    latest_volume = stock.info['volume']
-    
-    # Fetch the average volume of shares traded
-    average_volume = stock.info['averageVolume']
+    return stock.info['sharesOutstanding']
 
-    return latest_volume, average_volume
 
-ticker_symbol = 'CEIX'  # For Apple Inc. as an example
+def get_current_market_cap(ticker_symbol):
+    stock = yf.Ticker(ticker_symbol)
+    return stock.info['marketCap']
+
+
+def calculate_market_cap_at_price(ticker_symbol, interested_to_buy='Y'):
+    print(f"Current market price of {ticker_symbol}: ${get_current_stock_price(ticker_symbol):.2f}")
+    # Print current market cap
+    market_cap_current = get_current_market_cap(ticker_symbol)
+    print(f"Current market cap of {ticker_symbol}: ${market_cap_current:.2f}")
+    
+    if interested_to_buy == 'Y':
+        # Get the share price the user is interested in
+        share_price = float(input(f"Enter the share price you are interested in for {ticker_symbol}: "))
+        
+        # Calculate market cap based on given share price and outstanding shares
+        shares = get_shares_outstanding(ticker_symbol)
+        market_cap_interested = share_price * shares
+        
+        print(f"At a share price of ${share_price:.2f}, the market cap of {ticker_symbol} would be ${market_cap_interested:.2f}")
+
+ticker_symbol = 'AAPL'  # For Apple Inc. as an example
 
 compare_annual_performance(ticker_symbol)
 
@@ -299,10 +340,12 @@ print('#############################')
 display_pe_ratios(ticker_symbol)
 
 print('#############################')
-market_cap = calculate_market_cap(ticker_symbol)
-print(f"Market Capitalization for {ticker_symbol}: ${market_cap:,.2f}")
-
-print('#############################')
 latest_volume, average_volume = fetch_share_volume_data(ticker_symbol)
 print(f"Latest Volume for {ticker_symbol}: {latest_volume:,}")
 print(f"Average Volume for {ticker_symbol}: {average_volume:,}")
+shares = get_shares_outstanding(ticker_symbol)
+print(f"Total number of shares issued by {ticker_symbol}: {shares}")
+
+print('#############################')
+calculate_market_cap_at_price(ticker_symbol)             # Will ask for share price and show both market caps
+#calculate_market_cap_at_price(ticker_symbol, 'N')       # Will only show the current market cap
