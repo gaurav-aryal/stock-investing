@@ -4,6 +4,9 @@ from datetime import datetime, timedelta
 import datetime as dt
 from pprint import pprint
 import textwrap
+import time
+from requests.exceptions import HTTPError
+import requests
 
 # Disable pandas warning
 pd.options.mode.chained_assignment = None
@@ -11,9 +14,24 @@ pd.options.mode.chained_assignment = None
 class StockAnalysis:
     _dcf_has_run = False
 
-    def __init__(self, ticker_symbol):
+    def __init__(self, ticker_symbol, max_retries=3):
         self.ticker_symbol = ticker_symbol
-        self.stock = yf.Ticker(ticker_symbol)
+        
+        # Create a session
+        session = requests.Session()
+        
+        try:
+            # Use session for requests
+            self.stock = yf.Ticker(ticker_symbol, session=session)
+            current_price = self.stock.info.get('currentPrice', 0)
+            dividend_rate = self.stock.info.get('dividendRate', 0)
+            self.dividend_yield = (dividend_rate / current_price * 100) if dividend_rate and current_price else 0
+            
+        except Exception as e:
+            print(f"Error initializing stock analysis: {e}")
+            raise
+        finally:
+            session.close()
         
         # Initialize growth rate variables
         self.avg_roic_growth = None
@@ -23,14 +41,10 @@ class StockAnalysis:
         self.avg_fcf_growth = None
         # Initialize attributes
         self.trailing_earnings_yield = 0
+        
         self.forward_earnings_yield = 0
         self.dividend_yield = 0
         self.breakeven_price = 0
-
-        # Calculate and store dividend yield at initialization
-        current_price = self.stock.info.get('currentPrice', 0)
-        dividend_rate = self.stock.info.get('dividendRate', 0)
-        self.dividend_yield = (dividend_rate / current_price * 100) if dividend_rate and current_price else 0
 
     def display_stock_info(self) -> None:
         """
