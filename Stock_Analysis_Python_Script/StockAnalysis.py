@@ -17,34 +17,73 @@ class StockAnalysis:
     def __init__(self, ticker_symbol, max_retries=3):
         self.ticker_symbol = ticker_symbol
         
-        # Create a session
-        session = requests.Session()
-        
-        try:
-            # Use session for requests
-            self.stock = yf.Ticker(ticker_symbol, session=session)
-            current_price = self.stock.info.get('currentPrice', 0)
-            dividend_rate = self.stock.info.get('dividendRate', 0)
-            self.dividend_yield = (dividend_rate / current_price * 100) if dividend_rate and current_price else 0
-            
-        except Exception as e:
-            print(f"Error initializing stock analysis: {e}")
-            raise
-        finally:
-            session.close()
-        
-        # Initialize growth rate variables
-        self.avg_roic_growth = None
-        self.avg_equity_growth = None
-        self.avg_earnings_growth = None
-        self.avg_sales_growth = None
-        self.avg_fcf_growth = None
-        # Initialize attributes
-        self.trailing_earnings_yield = 0
-        
-        self.forward_earnings_yield = 0
-        self.dividend_yield = 0
-        self.breakeven_price = 0
+        for attempt in range(max_retries):
+            try:
+                # Add longer delay between attempts
+                time.sleep(5)  # Wait 5 seconds
+                
+                # Create a session with custom headers
+                session = requests.Session()
+                session.headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Cache-Control': 'max-age=0'
+                }
+                
+                # Initialize ticker with session and proxy
+                proxies = None  # You can add proxy support here if needed
+                self.stock = yf.Ticker(ticker_symbol)
+                
+                # Try to get info with delay and multiple attempts
+                info = None
+                for info_attempt in range(3):
+                    try:
+                        time.sleep(3)  # Increased delay
+                        info = self.stock.info
+                        if info:  # Verify we got valid data
+                            break
+                    except Exception as e:
+                        print(f"Info attempt {info_attempt + 1} failed: {str(e)}")
+                        if info_attempt < 2:  # Not the last attempt
+                            time.sleep(7)  # Longer delay between info attempts
+                        else:
+                            raise
+                
+                if not info:
+                    raise Exception("Failed to retrieve stock information")
+                
+                # Initialize variables with safe defaults
+                current_price = info.get('currentPrice', 0)
+                dividend_rate = info.get('dividendRate', 0)
+                
+                # Store basic info
+                self.dividend_yield = (dividend_rate / current_price * 100) if dividend_rate and current_price else 0
+                
+                # Initialize other variables
+                self.avg_roic_growth = None
+                self.avg_equity_growth = None
+                self.avg_earnings_growth = None
+                self.avg_sales_growth = None
+                self.avg_fcf_growth = None
+                self.trailing_earnings_yield = 0
+                self.forward_earnings_yield = 0
+                self.breakeven_price = 0
+                
+                print(f"Successfully initialized {ticker_symbol} data")
+                break
+                
+            except Exception as e:
+                print(f"Attempt {attempt + 1}/{max_retries} failed: {str(e)}")
+                if attempt == max_retries - 1:
+                    raise Exception(f"Failed to initialize {ticker_symbol} after {max_retries} attempts: {str(e)}")
+                time.sleep(15)  # Even longer wait between retries
+                
+            finally:
+                if 'session' in locals():
+                    session.close()
 
     def display_stock_info(self) -> None:
         """
@@ -177,53 +216,61 @@ class StockAnalysis:
         try:
             print("\n=== Year-by-Year Performance ===")
             
-            # Get historical data for SPY and VTI
-            spy = yf.download('SPY', start='2000-01-01', end=None)['Adj Close']
-            vti = yf.download('VTI', start='2000-01-01', end=None)['Adj Close']
-            stock = yf.download(self.ticker_symbol, start='2000-01-01', end=None)['Adj Close']
+            # Get historical data with explicit end date and frequency
+            end_date = datetime.now()
+            start_date = '2000-01-01'
             
-            # Calculate annual returns
-            spy_annual = spy.resample('Y').last().pct_change()
-            vti_annual = vti.resample('Y').last().pct_change()
-            stock_annual = stock.resample('Y').last().pct_change()
+            # Download data with business day frequency
+            spy = yf.download('SPY', start=start_date, end=end_date, auto_adjust=True, interval='1d')['Close']
+            vti = yf.download('VTI', start=start_date, end=end_date, auto_adjust=True, interval='1d')['Close']
+            stock = yf.download(self.ticker_symbol, start=start_date, end=end_date, auto_adjust=True, interval='1d')['Close']
             
-            # Create DataFrame with all returns
+            # Create DataFrame with aligned dates
             df = pd.DataFrame({
-                'SPY': spy_annual,
-                'VTI': vti_annual,
-                self.ticker_symbol: stock_annual
-            })
+                'SPY': spy,
+                'VTI': vti,
+                self.ticker_symbol: stock
+            }).fillna(method='ffill')
             
-            # Drop any rows where all values are NaN
-            df = df.dropna(how='all')
+            # Convert index to datetime if it's not already
+            df.index = pd.to_datetime(df.index)
+            
+            # Calculate annual returns (last day of each year)
+            annual_returns = df.groupby(df.index.year).last().pct_change()
+            
+            # Remove first row (will be NaN due to pct_change)
+            annual_returns = annual_returns.iloc[1:]
+            
+            if annual_returns.empty:
+                print("No comparable annual returns available")
+                return
             
             # Print the comparison table
             print("Year   | SPY          | VTI          | {:<12} | vs SPY     | vs VTI".format(self.ticker_symbol))
             print("-" * 75)
             
-            for year in df.index:
-                spy_return = df.loc[year, 'SPY']
-                vti_return = df.loc[year, 'VTI']
-                stock_return = df.loc[year, self.ticker_symbol]
+            for year in annual_returns.index:
+                spy_return = annual_returns.loc[year, 'SPY']
+                vti_return = annual_returns.loc[year, 'VTI']
+                stock_return = annual_returns.loc[year, self.ticker_symbol]
                 
                 # Calculate differences
                 vs_spy = stock_return - spy_return if not pd.isna(spy_return) else None
                 vs_vti = stock_return - vti_return if not pd.isna(vti_return) else None
                 
                 # Format the output
-                year_str = str(year.year)
                 spy_str = f"{spy_return:+.2%}" if not pd.isna(spy_return) else "N/A"
                 vti_str = f"{vti_return:+.2%}" if not pd.isna(vti_return) else "N/A"
                 stock_str = f"{stock_return:+.2%}" if not pd.isna(stock_return) else "N/A"
-                vs_spy_str = f"{vs_spy:+.2%}" if vs_spy is not None else "N/A"
-                vs_vti_str = f"{vs_vti:+.2%}" if vs_vti is not None else "N/A"
+                vs_spy_str = f"{vs_spy:+.2f}%" if vs_spy is not None else "N/A"
+                vs_vti_str = f"{vs_vti:+.2f}%" if vs_vti is not None else "N/A"
                 
-                print(f"{year_str} | {spy_str:12} | {vti_str:12} | {stock_str:12} | {vs_spy_str:10} | {vs_vti_str:10}")
+                print(f"{year} | {spy_str:12} | {vti_str:12} | {stock_str:12} | {vs_spy_str:10} | {vs_vti_str:10}")
             
-            # Calculate and print average annual returns
-            avg_spy = df['SPY'].mean()
-            avg_vti = df['VTI'].mean()
-            avg_stock = df[self.ticker_symbol].mean()
+            # Calculate averages
+            avg_spy = annual_returns['SPY'].mean()
+            avg_vti = annual_returns['VTI'].mean()
+            avg_stock = annual_returns[self.ticker_symbol].mean()
             
             print("\n=== Average Annual Returns ===")
             print(f"SPY: {avg_spy:+.2%}")
@@ -234,22 +281,17 @@ class StockAnalysis:
             
             # Calculate CAGR
             def calculate_cagr(returns):
-                # Filter out NaN values
                 returns = returns.dropna()
                 if len(returns) < 2:
                     return None
-                
-                # Calculate cumulative return
                 cum_return = (1 + returns).prod()
-                # Calculate number of years
                 years = len(returns)
-                # Calculate CAGR
                 cagr = (cum_return ** (1/years)) - 1
                 return cagr
             
-            cagr_spy = calculate_cagr(df['SPY'])
-            cagr_vti = calculate_cagr(df['VTI'])
-            cagr_stock = calculate_cagr(df[self.ticker_symbol])
+            cagr_spy = calculate_cagr(annual_returns['SPY'])
+            cagr_vti = calculate_cagr(annual_returns['VTI'])
+            cagr_stock = calculate_cagr(annual_returns[self.ticker_symbol])
             
             print("\n=== Compound Annual Growth Rate (CAGR) ===")
             print(f"SPY CAGR: {cagr_spy:+.2%}")
