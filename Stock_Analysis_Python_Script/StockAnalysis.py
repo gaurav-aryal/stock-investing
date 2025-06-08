@@ -7,6 +7,7 @@ import textwrap
 import time
 from requests.exceptions import HTTPError
 import requests
+import math
 
 # Disable pandas warning
 pd.options.mode.chained_assignment = None
@@ -36,6 +37,9 @@ class StockAnalysis:
                 # Initialize ticker with session and proxy
                 proxies = None  # You can add proxy support here if needed
                 self.stock = yf.Ticker(ticker_symbol)
+
+                # Enable yfinance caching
+                yf.set_tz_cache_location("tz_cache.json")
                 
                 # Try to get info with delay and multiple attempts
                 info = None
@@ -221,9 +225,34 @@ class StockAnalysis:
             start_date = '2000-01-01'
             
             # Download data with business day frequency
-            spy = yf.download('SPY', start=start_date, end=end_date, auto_adjust=True, interval='1d')['Close']
-            vti = yf.download('VTI', start=start_date, end=end_date, auto_adjust=True, interval='1d')['Close']
-            stock = yf.download(self.ticker_symbol, start=start_date, end=end_date, auto_adjust=True, interval='1d')['Close']
+            def get_close_series(ticker, start, end):
+                df = yf.download(ticker, start=start, end=end, auto_adjust=True, interval='1d')
+                # If 'Close' is a DataFrame (multi-ticker), get the column for this ticker
+                if isinstance(df, pd.DataFrame):
+                    if 'Close' in df.columns:
+                        return df['Close']
+                    elif (('Close', ticker) in df.columns):
+                        return df[('Close', ticker)]
+                    elif ticker in df.columns:
+                        return df[ticker]
+                    else:
+                        # Try to flatten multi-index columns
+                        if isinstance(df.columns, pd.MultiIndex):
+                            for col in df.columns:
+                                if col[0] == 'Close':
+                                    return df[col]
+                return df.squeeze()  # fallback
+            
+            spy = get_close_series('SPY', start_date, end_date)
+            vti = get_close_series('VTI', start_date, end_date)
+            stock = get_close_series(self.ticker_symbol, start_date, end_date)
+            
+            print("SPY head:", spy.head())
+            print("VTI head:", vti.head())
+            print(f"{self.ticker_symbol} head:", stock.head())
+            if spy.empty or vti.empty or stock.empty:
+                print("One or more price series is empty. Check ticker symbols and data source.")
+                return
             
             # Create DataFrame with aligned dates
             df = pd.DataFrame({
@@ -964,14 +993,15 @@ class StockAnalysis:
                         print("\nNo cash flow data available.")
                         return None
                     
-                    # Get most recent FCF value
-                    fcf = float(cash_flow.loc['Free Cash Flow'].iloc[0])
-                    if pd.isna(fcf):
+                    # Use the average of the last 3-5 years of FCF
+                    fcf_series = cash_flow.loc['Free Cash Flow']
+                    recent_fcfs = fcf_series.head(5).dropna()
+                    if recent_fcfs.empty:
                         print("\nNo valid Free Cash Flow data available.")
                         return None
-                    
-                    print("\n=== DCF Calculation Details ===")
-                    print(f"Starting Free Cash Flow: ${fcf:,.2f}")
+                    fcf = recent_fcfs.mean()
+                    print(f"\n=== DCF Calculation Details ===")
+                    print(f"Starting Free Cash Flow (5-year average): ${fcf:,.2f}")
                     
                     # Get current year
                     current_year = datetime.now().year
@@ -1317,9 +1347,8 @@ class StockAnalysis:
             earnings_yield = (trailing_eps / current_price * 100) if current_price and trailing_eps else 0
             
             # Get dividend yield
-            dividend_yield = self.stock.info.get('dividendYield', 0)
-            if dividend_yield:
-                dividend_yield *= 100
+            dividend_rate = self.stock.info.get('dividendRate', 0)
+            dividend_yield = (dividend_rate / current_price * 100) if dividend_rate and current_price else 0
             
             # Calculate total stock yield
             total_stock_yield = earnings_yield + dividend_yield
